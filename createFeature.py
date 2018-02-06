@@ -2,9 +2,12 @@ import re
 import input
 import string
 from nltk.corpus import stopwords
-import numpy as np
 import multiprocessing as mlp
 from tqdm import tqdm
+import pandas as pd 
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import PCA
 PATH = 'data/'
 
 def countFeature(dataset):
@@ -77,50 +80,83 @@ def countFeature(dataset):
 
     return dataset
 
-def getTfidfVector(train,test):
-    '''
-    TF-IDF Vectorizer
-    '''
-    from sklearn.feature_extraction.text import TfidfVectorizer
-
-    ### 单个词 ###
-    tfv = TfidfVectorizer(min_df=100, max_features=50000,
-                          strip_accents='unicode', analyzer='word', ngram_range=(1, 1),
-                          use_idf=1, smooth_idf=1, sublinear_tf=1,
-                          stop_words='english')
-    tfv.fit(clean_corpus)
-    #    features = np.array(tfv.get_feature_names())
-
-    train_unigrams = tfv.transform(clean_corpus.iloc[:train.shape[0]])
-    #    test_unigrams = tfv.transform(clean_corpus.iloc[train.shape[0]:])
-
-
-    ### 两个词 ###
-    tfv = TfidfVectorizer(min_df=100, max_features=50000,
-                          strip_accents='unicode', analyzer='word', ngram_range=(2, 2),
-                          use_idf=1, smooth_idf=1, sublinear_tf=1,
-                          stop_words='english')
-
-    tfv.fit(clean_corpus)
-    #    features = np.array(tfv.get_feature_names())
-    train_bigrams = tfv.transform(clean_corpus.iloc[:train.shape[0]])
-    #    test_bigrams = tfv.transform(clean_corpus.iloc[train.shape[0]:])
-
-
-    ### 长度为4的字符 ###
-    tfv = TfidfVectorizer(min_df=100, max_features=50000,
-                          strip_accents='unicode', analyzer='char', ngram_range=(1, 4),
-                          use_idf=1, smooth_idf=1, sublinear_tf=1,
-                          stop_words='english')
-
-    tfv.fit(clean_corpus)
-    #    features = np.array(tfv.get_feature_names())
-    train_charngrams = tfv.transform(clean_corpus.iloc[:train.shape[0]])
-    #    test_charngrams = tfv.transform(clean_corpus.iloc[train.shape[0]:])
-
-
-    return train_bigrams, train_charngrams, train_unigrams
-
+''' 封装TF-IDF '''
+def tfidfFeature(clean_corpus, mode="other", params_tfidf=None, n_components=128):
+    ''' TF-IDF Vectorizer '''
+    def getTfidfVector(clean_corpus, #之后的参数都是TfidfVectorizer()的参数
+                min_df=100, max_features=100000, 
+                strip_accents='unicode', analyzer='word',ngram_range=(1,1),
+                use_idf=1,smooth_idf=1,sublinear_tf=1,
+                stop_words = 'english'):
+        
+        tfv = TfidfVectorizer(min_df=min_df, max_features=max_features, 
+                strip_accents=strip_accents, analyzer=analyzer, ngram_range=ngram_range,
+                use_idf=use_idf, smooth_idf=smooth_idf, sublinear_tf=sublinear_tf,
+                stop_words = stop_words)
+        tfv.fit(clean_corpus)
+        features_tfidf = np.array(tfv.get_feature_names())
+        model_tfidf =  tfv.transform(clean_corpus)
+        return model_tfidf, features_tfidf
+    
+    ''' PCA降维 '''
+    def pca_compression(model_tfidf, n_components):
+        np_model_tfidf = model_tfidf.toarray()
+        pca = PCA(n_components=n_components)
+        pca_model_tfidf = pca.fit_transform(np_model_tfidf)
+        return pca_model_tfidf
+        
+    ##### 确认模式 #####
+    if mode == "other":
+        #初始化一套参数，然后用自定义的参数去替换更改后的
+        params = {
+            "min_df":100, "max_features":100000, 
+            "strip_accents":'unicode', "analyzer":'word', "ngram_range":(1,1),
+            "use_idf":1, "smooth_idf":1, "sublinear_tf":1,
+            "stop_words":'english'
+            }
+        for item, value in params_tfidf.items():
+            params[item] = params_tfidf[item]
+    else: #mode = "unigrams"/"bigrams"/"charngrams"
+        ''' 内置3套参数 '''
+        if mode == "unigrams": #单个词
+            params = {
+                "min_df":100, "max_features":100000, 
+                "strip_accents":'unicode', "analyzer":'word', "ngram_range":(1,1),
+                "use_idf":1, "smooth_idf":1, "sublinear_tf":1,
+                "stop_words":'english'
+                }
+        elif mode == "bigrams": #两个词
+            params = {
+                "min_df":100, "max_features":30000, 
+                "strip_accents":'unicode', "analyzer":'word', "ngram_range":(2,2),
+                "use_idf":1, "smooth_idf":1, "sublinear_tf":1,
+                "stop_words":'english'
+                }                
+        elif mode == "charngrams": #长度为4的字符
+            params = {
+                "min_df":100, "max_features":30000, 
+                "strip_accents":'unicode', "analyzer":'char', "ngram_range":(1,4),
+                "use_idf":1, "smooth_idf":1, "sublinear_tf":1,
+                "stop_words":'english'
+                }                
+        else:
+            print("mode error...")
+            return
+            
+    #获取tfidf后的稀疏矩阵sparse
+    model_tfidf, features_tfidf = getTfidfVector(clean_corpus, #之后的参数都是TfidfVectorizer()的参数
+            min_df=params["min_df"], max_features=params["max_features"], 
+            strip_accents=params["strip_accents"], analyzer=params["analyzer"], ngram_range=params["ngram_range"],
+            use_idf=params["use_idf"], smooth_idf=params["smooth_idf"], sublinear_tf=params["sublinear_tf"],
+            stop_words=params["stop_words"])
+    #获取pca后的np      
+    pca_model_tfidf = pca_compression(model_tfidf, n_components=n_components)
+    #获取添加特征名后的pd
+    n = params["ngram_range"][0] #生成特征列名时的n的值
+    pd_pca_model_tfidf = pd.DataFrame(pca_model_tfidf, columns=["tfidf"+str(n)+"gram"+str(x) for x in range(1, n_components+1)])
+    return pd_pca_model_tfidf
+	
+	
 def doc2bow(text,dictionary):
     return [dictionary.doc2bow(t) for t in tqdm(text)]
 
@@ -170,6 +206,11 @@ def LDAFeature(num_topics=20):
     corpus = get_corpus(dictionary)
     print('begin train lda')
     ldamodel = LdaMulticore(corpus=corpus, num_topics=num_topics, id2word=dictionary)
+    tfidfmodel = tfidfFeature(clean_corpus=corpus, mode="other", params_tfidf={"ngram_range":(2,2)}, n_components=num_topics)
+#    tfidfmodel = tfidfFeature(clean_corpus=corpus, mode="unigrams", n_components=num_topics)
+    ''' 可选模式：mode="other"，需自己指定参数params_tfidf，或者用函数中预定义的3套参数（印度小哥kernal中的）mode="unigrams"、"bigrams"、"charngrams" '''
+    train_tfidf = tfidfmodel[:train.shape[0]]
+    test_tfidf = tfidfmodel[train.shape[0]:]
 
     print('inference')
     topic_probability_mat = ldamodel[corpus]
