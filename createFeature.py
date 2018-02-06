@@ -151,7 +151,7 @@ def tfidfFeature(clean_corpus, mode="other", params_tfidf=None, n_components=128
             strip_accents=params["strip_accents"], analyzer=params["analyzer"], ngram_range=params["ngram_range"],
             use_idf=params["use_idf"], smooth_idf=params["smooth_idf"], sublinear_tf=params["sublinear_tf"],
             stop_words=params["stop_words"])
-    #获取pca后的np      
+    #获取pca后的np
     pca_model_tfidf = pca_compression(model_tfidf, n_components=n_components)
     #获取添加特征名后的pd
     n = params["ngram_range"][0] #生成特征列名时的n的值
